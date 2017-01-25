@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Tested against Phing 2.16.0 on OS-X (homebrew).
+-->
+<project name="OpenDiveDir-data-retrieval" default="build">
+
+    <!-- Include dependent PEAR libraries. -->
+    <includepath classpath="classes/vendor/pear" />
+
+    <!-- Provide taskpath for OSM/ODD-specific tools. -->
+    <includepath classpath="classes/osm" />
+
+    <!-- Load properties. -->
+    <property file="build.env.properties" logoutput="false" />
+    <property file="build.osm.properties" logoutput="false" />
+
+    <!-- Normal session build parameters. -->
+    <property name="session.predicates" value="${osm.predicates.all}" />
+    <property name="session.bbox"       value="${osm.map.bbox.world}" />
+
+
+    <!-- ============================================  -->
+    <!-- Target: build                                 -->
+    <!-- ============================================  -->
+    <target name="build" depends="prep" description="Downloads OSM data and produces GeoJSON files representing scuba dive sites.">
+        <!--
+            Default wrapper task.
+        -->
+        <!-- Set the OSM-CACHE-IS-STALE property if the OSM cache dir mtime is older than a day. -->
+        <if>
+            <!-- Verify that the directory exists before checking the mtime of the dir. -->
+            <available file="${env.dir.data_cache.src}" type="dir" />
+            <then>
+                <!-- Provide mtime of the cache dir. -->
+                <php returnProperty="DIR_MTIME" function="filemtime" level="debug">
+                    <param value="${env.dir.data_cache.src}" />
+                </php>
+
+                <!-- Calculate age of the cache dir. -->
+                <php returnProperty="DIR_AGE" expression="time() - ${DIR_MTIME}" level="debug" />
+                <php returnProperty="DIR-IS-STALE" expression="${DIR_AGE} > ${env.dir.data_cache.src.stale}" level="debug" />
+
+                <if>
+                    <istrue value="${DIR-IS-STALE}" />
+                    <then>
+                        <property name="OSM-CACHE-IS-STALE" value="true" />
+                    </then>
+                </if>
+
+            </then>
+        </if>
+
+        <phingcall target="fetch-osm-data" />
+        <phingcall target="osm-reduce" />
+        <phingcall target="osm-geojsonise" />
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: fetch-osm-data                        -->
+    <!-- ============================================  -->
+    <target if="OSM-CACHE-IS-STALE" name="fetch-osm-data" description="Fetches all scuba-related nodes and waypoints from OSM and stores them as XML files.">
+        <!-- Infer properties -->
+        <php returnProperty="session.bbox.chunked" function="osm_bbox_section" class="Osm">
+            <param value="${session.bbox}"/>
+            <param value="${osm.map.bbox-size.max}"/>
+        </php>
+
+        <!-- Query each chunk of the bounding boxes. -->
+        <foreach list="${session.bbox.chunked}" delimiter=" " param="session.bbox.chunk" target="fetch-osm-data-within-bbox" />
+
+        <!-- Touch the env.dir.data_cache.src directory, to show the last time it was checked. -->
+        <touch>
+            <fileset dir=".">
+                <include name="${env.dir.data_cache.src}" />
+            </fileset>
+        </touch>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: fetch-osm-data-within-bbox            -->
+    <!-- ============================================  -->
+    <target name="fetch-osm-data-within-bbox" hidden="1">
+        <!--
+            Injected properties:
+            - ${session.bbox.chunk}
+
+            Session properties:
+            - ${session.predicates}
+        -->
+
+        <foreach list="${session.predicates}" delimiter=" " param="predicate" target="osm-xapi-fetch-single-file">
+            <property name="bbox" value="${session.bbox.chunk}" />
+        </foreach>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: osm-xapi-fetch-single-file            -->
+    <!-- ============================================  -->
+    <target name="osm-xapi-fetch-single-file" hidden="1">
+        <!--
+          Injected properties:
+          - ${predicate}
+          - ${bbox} 
+
+          Environment properties:
+          - ${env.dir.data_cache.src}
+          - ${osm.xapi.host}
+          - ${osm.xapi.stale}
+        -->
+
+        <property name="local.xapi.url" value="${osm.xapi.host}?*[${predicate}][bbox=${bbox}]" />
+        <property name="local.dir"      value="${env.dir.data_cache.src}" />
+        <property name="local.file"     value="osm-[${predicate}]-[${bbox}].xml" />
+
+        <if>
+            <!-- Verify that the file exists before checking the mtime of the file -->
+            <available file="${local.file}" filepath="${local.dir}" type="file" />
+            <then>
+                <!-- Provide mtime of the locally cached file. -->
+                <php returnProperty="FILE_MTIME" function="filemtime" level="debug">
+                    <param value="${local.dir}/${local.file}" />
+                </php>
+            </then>
+            <else>
+                <property name="FILE_MTIME" value="0" />
+            </else>
+        </if>
+
+        <!-- Calculate age of the locally cached file. -->
+        <php returnProperty="FILE_AGE" expression="time() - ${FILE_MTIME}" level="debug" />
+
+        <!-- Choose whether the file is stale. -->
+        <php returnProperty="FILE_IS_STALE" expression="${FILE_AGE} > ${osm.xapi.stale}" level="debug" />
+
+        <!-- Only fetch if the cached file doesn't exist or is stale -->
+        <if>
+            <istrue value="${FILE_IS_STALE}"/>
+            <then>
+                <phingcall target="osm-xapi-force-fetch-single-file" />
+            </then>
+        </if>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: osm-xapi-force-fetch                  -->
+    <!-- ============================================  -->
+    <target name="osm-xapi-force-fetch-single-file" hidden="1">
+        <!-- http://api.openstreetmap.fr/xapi/0.6/?*[sport=scuba_diving][bbox=-1.2,50,0,51] -->
+        <!--
+          Injected properties:
+          - ${local.dir}
+          - ${local.file}
+          - ${local.xapi.url} 
+
+          Environment properties:
+          - ${env.log.err}
+          - ${osm.xapi.host}
+          - ${osm.xapi.timeout}
+        -->
+
+        <trycatch property="HttpGetPlusException">
+            <try>
+                <httpget
+                    dir="${local.dir}"
+                    filename="${local.file}"
+                    url="${local.xapi.url}"
+                    >
+
+                    <!-- Timeout will override PHP's default_socket_timeout value. -->
+                    <config name="timeout" value="${osm.xapi.timeout}" />
+                </httpget>
+            </try>
+
+            <catch>
+                <!-- Report error to CLI. -->
+                <echo 
+                    level="warning"
+                    msg="Download failed: ${local.xapi.url}${line.separator} ${HttpGetPlusException}${line.separator}"
+                    />
+
+                <!-- Log the missing file. -->
+                <echo 
+                    append="true"
+                    file="${env.log.err}"
+                    level="warning"
+                    msg="[${phing.startTime}] Download failed: ${local.xapi.url}${line.separator}"
+                    />
+            </catch>
+        </trycatch>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: osm-reduce                            -->
+    <!-- ============================================  -->
+    <target name="osm-reduce" description="Processes OSM XML files, and transforms the data to a intermediary XML format.">
+
+        <!-- Parse each of the OSM XML files. -->
+        <xslt todir="${env.dir.data_cache.normalised}" style="${env.xslt}" >
+            <fileset dir="${env.dir.data_cache.src}">
+                <include name="**/*.xml" />
+            </fileset>
+
+            <!-- Strip blank lines. -->
+            <filterchain>
+                <linecontainsregexp>
+                    <regexp pattern="[^\s]" />
+                </linecontainsregexp>
+            </filterchain>
+        </xslt>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: osm-geojsonise                        -->
+    <!-- ============================================  -->
+    <target name="osm-geojsonise" description="Processes normalised OSM XML files, and transforms them to standard GeoJSON data." depends="osm-reduce">
+
+        <!-- Parse the XML files in ${dir.data_cache_normalised}. -->
+        <copy todir="${env.dir.data_cache.geojson}" >
+            <fileset dir="${env.dir.data_cache.normalised}">
+                <include name="**/*.xml" />
+                <!-- Only process non-empty files -->
+                <size value="1" when="more"/>
+            </fileset>
+
+            <!-- Rename .xml to .geo.json -->
+            <mapper type="glob" from="*.xml" to="*.geo.json" />
+
+            <!-- Custom filter to transform the XML into custom JSON structure. -->
+            <filterchain>
+                <filterreader classname="osm.filter.GeoJsonise" classpath="classes" />
+            </filterchain>
+        </copy>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: debug                                 -->
+    <!-- ============================================  -->
+    <target name="debug">
+        <phingcall target="osm-xapi-fetch-single-file">
+            <property name="predicate" value="sport=scuba_diving" />
+            <property name="bbox"      value="-1.2,50,0,51" />
+        </phingcall>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: prep                                  -->
+    <!-- ============================================  -->
+    <target name="prep" hidden="1">
+        <mkdir dir="${env.log.dir}" />
+
+        <!-- Only attempt to create directories if they don't exist, to avoid
+             updating their mtime. -->
+        <if>
+            <not>
+                <available file="${env.dir.build}" type="dir" />
+            </not>
+            <then>
+                <mkdir dir="${env.dir.build}" />
+            </then>
+        </if>
+        <if>
+            <not>
+                <available file="${env.dir.data_cache.src}" type="dir" />
+            </not>
+            <then>
+                <mkdir dir="${env.dir.data_cache.src}" />
+            </then>
+        </if>
+        <if>
+            <not>
+                <available file="${env.dir.data_cache.normalised}" type="dir" />
+            </not>
+            <then>
+                <mkdir dir="${env.dir.data_cache.normalised}" />
+            </then>
+        </if>
+        <if>
+            <not>
+                <available file="${env.dir.data_cache.geojson}" type="dir" />
+            </not>
+            <then>
+                <mkdir dir="${env.dir.data_cache.geojson}" />
+            </then>
+        </if>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: clean-all                             -->
+    <!-- ============================================  -->
+    <target name="clean-all" description="Removes build and log directories.">
+        <delete dir="${env.dir.build}" includeemptydirs="true" verbose="true" failonerror="false" />
+        <delete dir="${env.log.dir}"   includeemptydirs="true" verbose="true" failonerror="false" />
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: clean-derivatives                     -->
+    <!-- ============================================  -->
+    <target name="clean-derivatives" description="Removes transformed XML and GeoJSON files. Leaves cache intact.">
+        <delete dir="${env.dir.data_cache.normalised}" includeemptydirs="true" verbose="true" failonerror="false" />
+        <delete dir="${env.dir.data_cache.geojson}"    includeemptydirs="true" verbose="true" failonerror="false" />
+    </target>
+
+
+
+</project>
