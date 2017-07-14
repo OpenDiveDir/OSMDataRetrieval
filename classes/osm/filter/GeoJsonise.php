@@ -138,12 +138,15 @@ class GeoJsonise extends BaseParamFilterReader implements ChainableReader
         $attributes = (array) $feature->attributes();
         $attributes = $attributes['@attributes'];
 
-
+        // TODO: Detect if the way is fully-closed.
+        // For now, assume all ways are closed (Polygons).
         $way = array(
             'type' => 'Feature',
             'geometry' => array(
-                'type' => 'LineString',
-                'coordinates' => array(),
+                'type' => 'Polygon',
+                'coordinates' => array(
+                  array(),
+                ),
             ),
             'properties' => $attributes,
         );
@@ -164,7 +167,7 @@ class GeoJsonise extends BaseParamFilterReader implements ChainableReader
 
                 case 'node':
                     $way['properties']['nodes'][] = $attrs;
-                    $way['geometry']['coordinates'][] = array((float)$attrs['lon'], (float)$attrs['lat']);
+                    $way['geometry']['coordinates'][0][] = array((float)$attrs['lon'], (float)$attrs['lat']);
                     break;
             }
         }
