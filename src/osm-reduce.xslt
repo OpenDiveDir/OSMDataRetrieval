@@ -38,6 +38,7 @@
     </xsl:template>
 
     <xsl:template match="//way">
+        <!--Prefix each way with a comment, naming the dive site. -->
         <xsl:text>&#xa;&#xa;</xsl:text>
             <xsl:comment>
                 <xsl:choose>
