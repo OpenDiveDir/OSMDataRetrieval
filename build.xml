@@ -39,10 +39,14 @@
 
                 <!-- Calculate age of the cache dir. -->
                 <php returnProperty="DIR_AGE" expression="time() - ${DIR_MTIME}" level="debug" />
+                <php returnProperty="DIR-IS-EMPTY" expression="count(glob('${env.dir.data_cache.src}/*')) === 0" level="debug" />
                 <php returnProperty="DIR-IS-STALE" expression="${DIR_AGE} > ${env.dir.data_cache.src.stale}" level="debug" />
 
                 <if>
-                    <istrue value="${DIR-IS-STALE}" />
+                    <or>
+                        <istrue value="${DIR-IS-STALE}" />
+                        <istrue value="${DIR-IS-EMPTY}" />
+                    </or>
                     <then>
                         <property name="OSM-CACHE-IS-STALE" value="true" />
                     </then>
