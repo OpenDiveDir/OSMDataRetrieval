@@ -3,7 +3,7 @@
 <!--
   Tested against Phing 2.16.0 on OS-X (homebrew).
 -->
-<project name="OpenDiveDir-data-retrieval" default="build">
+<project name="OpenDiveDir-data-retrieval" default="dist">
 
     <!-- Include dependent PEAR libraries. -->
     <includepath classpath="classes/vendor/pear" />
@@ -18,6 +18,39 @@
     <!-- Normal session build parameters. -->
     <property name="session.predicates" value="${osm.predicates.all}" />
     <property name="session.bbox"       value="${osm.map.bbox.world}" />
+
+
+    <!-- ============================================  -->
+    <!-- Target: dist                                  -->
+    <!-- ============================================  -->
+    <target name="dist" depends="build" description="Produces a GeoJson dataset ready for syncing to an ODD host.">
+
+        <!-- Clean the dist directory. -->
+        <delete dir="${env.dist.dir}" includeemptydirs="true" verbose="true" failonerror="false" />
+
+        <!-- Create an empty dist directory. -->
+        <mkdir dir="${env.dist.dir}" />
+
+        <!-- Copy the GeoJson files to a "/odd-geojson" subdirectory. -->
+        <copy todir="${env.dist.json_dir}" >
+            <fileset dir="${env.dir.data_cache.geojson}">
+                <include name="**/*.geo.json" />
+                <!-- Only process non-empty files -->
+                <size value="1" when="more"/>
+            </fileset>
+        </copy>
+
+        <!-- Create an index file, containing a listing of the geojson files. -->
+        <php expression="implode (',' . PHP_EOL, preg_replace('/^(.+)$/', '  \'$1\'', array_map('basename', glob('${env.dist.json_dir}/*.geo.json'))));" returnProperty="filelist" />
+
+        <echo file="${env.dist.filelist}" append="false">
+var geojson_path = './data/odd-geojson/';
+var geojson_files = [
+${filelist}
+];
+</echo>
+
+    </target>
 
 
     <!-- ============================================  -->
