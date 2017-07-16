@@ -84,6 +84,88 @@
 
 
     <!-- ============================================  -->
+    <!-- Target: osm-reduce                            -->
+    <!-- ============================================  -->
+    <target name="osm-reduce" description="Processes OSM XML files, and transforms the data to a intermediary XML format.">
+
+        <!-- Parse each of the OSM XML files. -->
+        <xslt todir="${env.dir.data_cache.normalised}" style="${env.xslt}" >
+            <fileset dir="${env.dir.data_cache.src}">
+                <include name="**/*.xml" />
+            </fileset>
+
+            <!-- Strip blank lines. -->
+            <filterchain>
+                <linecontainsregexp>
+                    <regexp pattern="[^\s]" />
+                </linecontainsregexp>
+            </filterchain>
+        </xslt>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: osm-geojsonise                        -->
+    <!-- ============================================  -->
+    <target name="osm-geojsonise" description="Processes normalised OSM XML files, and transforms them to standard GeoJSON data." depends="osm-reduce">
+
+        <!-- Parse the XML files in ${dir.data_cache_normalised}. -->
+        <copy todir="${env.dir.data_cache.geojson}" >
+            <fileset dir="${env.dir.data_cache.normalised}">
+                <include name="**/*.xml" />
+                <!-- Only process non-empty files -->
+                <size value="1" when="more"/>
+            </fileset>
+
+            <!-- Rename .xml to .geo.json -->
+            <mapper type="glob" from="*.xml" to="*.geo.json" />
+
+            <!-- Custom filter to transform the XML into custom JSON structure. -->
+            <filterchain>
+                <filterreader classname="osm.filter.GeoJsonise" classpath="classes" />
+            </filterchain>
+        </copy>
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: clean-all                             -->
+    <!-- ============================================  -->
+    <target name="clean-all" description="Removes build and log directories.">
+        <delete dir="${env.dir.build}" includeemptydirs="true" verbose="true" failonerror="false" />
+        <delete dir="${env.log.dir}"   includeemptydirs="true" verbose="true" failonerror="false" />
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: clean-derivatives                     -->
+    <!-- ============================================  -->
+    <target name="clean-derivatives" description="Removes transformed XML and GeoJSON files. Leaves cache intact.">
+        <delete dir="${env.dir.data_cache.normalised}" includeemptydirs="true" verbose="true" failonerror="false" />
+        <delete dir="${env.dir.data_cache.geojson}"    includeemptydirs="true" verbose="true" failonerror="false" />
+    </target>
+
+
+    <!-- ============================================  -->
+    <!-- Target: debug                                 -->
+    <!-- ============================================  -->
+    <target name="debug">
+        <phingcall target="osm-xapi-fetch-single-file">
+            <property name="predicate" value="sport=scuba_diving" />
+            <property name="bbox"      value="-1.2,50,0,51" />
+        </phingcall>
+    </target>
+
+
+
+
+
+
+
+
+
+
+    <!-- ============================================  -->
     <!-- Target: fetch-osm-data-within-bbox            -->
     <!-- ============================================  -->
     <target name="fetch-osm-data-within-bbox" hidden="1">
@@ -200,62 +282,6 @@
 
 
     <!-- ============================================  -->
-    <!-- Target: osm-reduce                            -->
-    <!-- ============================================  -->
-    <target name="osm-reduce" description="Processes OSM XML files, and transforms the data to a intermediary XML format.">
-
-        <!-- Parse each of the OSM XML files. -->
-        <xslt todir="${env.dir.data_cache.normalised}" style="${env.xslt}" >
-            <fileset dir="${env.dir.data_cache.src}">
-                <include name="**/*.xml" />
-            </fileset>
-
-            <!-- Strip blank lines. -->
-            <filterchain>
-                <linecontainsregexp>
-                    <regexp pattern="[^\s]" />
-                </linecontainsregexp>
-            </filterchain>
-        </xslt>
-    </target>
-
-
-    <!-- ============================================  -->
-    <!-- Target: osm-geojsonise                        -->
-    <!-- ============================================  -->
-    <target name="osm-geojsonise" description="Processes normalised OSM XML files, and transforms them to standard GeoJSON data." depends="osm-reduce">
-
-        <!-- Parse the XML files in ${dir.data_cache_normalised}. -->
-        <copy todir="${env.dir.data_cache.geojson}" >
-            <fileset dir="${env.dir.data_cache.normalised}">
-                <include name="**/*.xml" />
-                <!-- Only process non-empty files -->
-                <size value="1" when="more"/>
-            </fileset>
-
-            <!-- Rename .xml to .geo.json -->
-            <mapper type="glob" from="*.xml" to="*.geo.json" />
-
-            <!-- Custom filter to transform the XML into custom JSON structure. -->
-            <filterchain>
-                <filterreader classname="osm.filter.GeoJsonise" classpath="classes" />
-            </filterchain>
-        </copy>
-    </target>
-
-
-    <!-- ============================================  -->
-    <!-- Target: debug                                 -->
-    <!-- ============================================  -->
-    <target name="debug">
-        <phingcall target="osm-xapi-fetch-single-file">
-            <property name="predicate" value="sport=scuba_diving" />
-            <property name="bbox"      value="-1.2,50,0,51" />
-        </phingcall>
-    </target>
-
-
-    <!-- ============================================  -->
     <!-- Target: prep                                  -->
     <!-- ============================================  -->
     <target name="prep" hidden="1">
@@ -296,25 +322,5 @@
             </then>
         </if>
     </target>
-
-
-    <!-- ============================================  -->
-    <!-- Target: clean-all                             -->
-    <!-- ============================================  -->
-    <target name="clean-all" description="Removes build and log directories.">
-        <delete dir="${env.dir.build}" includeemptydirs="true" verbose="true" failonerror="false" />
-        <delete dir="${env.log.dir}"   includeemptydirs="true" verbose="true" failonerror="false" />
-    </target>
-
-
-    <!-- ============================================  -->
-    <!-- Target: clean-derivatives                     -->
-    <!-- ============================================  -->
-    <target name="clean-derivatives" description="Removes transformed XML and GeoJSON files. Leaves cache intact.">
-        <delete dir="${env.dir.data_cache.normalised}" includeemptydirs="true" verbose="true" failonerror="false" />
-        <delete dir="${env.dir.data_cache.geojson}"    includeemptydirs="true" verbose="true" failonerror="false" />
-    </target>
-
-
 
 </project>
