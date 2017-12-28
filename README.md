@@ -19,6 +19,11 @@ XAPI lookup).
 Queries are geographically limited to a region measuring 10º of longitude and
 latitude.
 
+# TODO
+
+This tool uses the XAPI protocol, which is now deprecated.
+This should be refactored to use a current API such as Overpass.
+
 # Requirements
 
 This tool requires Phing, a PHP port of Ant.
