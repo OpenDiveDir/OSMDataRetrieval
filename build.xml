@@ -104,6 +104,9 @@ ${filelist}
             <param value="${osm.map.bbox-size.max}"/>
         </php>
 
+        <!-- Check the API server is available. -->
+        <phingcall target="checkapihost" />
+
         <!-- Query each chunk of the bounding boxes. -->
         <foreach list="${session.bbox.chunked}" delimiter=" " param="session.bbox.chunk" target="fetch-osm-data-within-bbox" />
 
@@ -355,5 +358,22 @@ ${filelist}
             </then>
         </if>
     </target>
+
+    <!-- ============================================  -->
+    <!-- Target: check API server                      -->
+    <!-- ============================================  -->
+    <target name="checkapihost" hidden="1">
+      <!-- Use Null Island as a test request, checking for a 200 response. -->
+      <property name="local.xapi.testurl" value="${osm.xapi.host}?*[bbox=0,0,0,0]" />
+
+      <if>
+          <not>
+              <http url="${local.xapi.testurl}" />
+          </not>
+          <then>
+              <fail>XAPI server failure.</fail>
+          </then>
+      </if>
+  </target>
 
 </project>
